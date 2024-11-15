@@ -4,3 +4,6 @@ torch==2.2.2
 torchvision==0.17.2
 torchaudio==2.2.2
 ultralytics==8.3.25
+lapx==0.5.11
+gdown==5.2.0
+tensorboard==2.18.0
