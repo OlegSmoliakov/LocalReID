@@ -24,6 +24,7 @@ log.setLevel(logging.DEBUG)
 class Person:
     track: Track
     img: np.ndarray
+    last_frame: int = None
 
 
 class ObjectTracking:
@@ -117,7 +118,14 @@ class ObjectTracking:
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
 
-        return self.new_persons if self.new_persons else False
+        new_persons = {}
+        for track_id, person in self.new_persons.items():
+            # wait for N frames before compare new persons
+            N = 15
+            if self.tracker.frame_no - person.last_frame > N:
+                new_persons[track_id] = person
+
+        return new_persons
 
     def release_resources(self):
         if self.output_video:
@@ -138,6 +146,7 @@ class ObjectTracking:
         self.model = model
 
     def init_sfsort(self):
+        self.id_counter = 0
         self.colors = {}
 
         frame_rate = self.desired_fps
@@ -183,7 +192,9 @@ class ObjectTracking:
             current_track = self.get_current_track(track_id)
 
             if track_id not in self.active_persons:
-                self.new_persons[track_id] = Person(track=current_track, img=cropped_img)
+                self.new_persons[track_id] = Person(
+                    track=current_track, img=cropped_img, last_frame=current_track.last_frame
+                )
             else:
                 self.active_persons[track_id] = Person(track=current_track, img=cropped_img)
 
@@ -210,33 +221,30 @@ class ObjectTracking:
         return None
 
     def check_among_detected(self, new_persons: dict[int, Person]):
-        changes = set()
+        changes = []
 
         for new_person_id, new_person in new_persons.items():
             for person_id, person in self.active_persons.items():
                 if self.comparator.compare_by_similarity(person.img, new_person.img, 0.7):
-                    changes.add({"old_id": new_person_id, "new_id": person_id})
+                    changes.append({"old_id": new_person_id, "new_id": person_id})
                     break
             else:
                 # real new person on second camera
                 self.tracker.id_counter += 1
+                changes.append({"old_id": new_person_id, "new_id": new_person_id})
 
-        if changes:
-            return {"id_counter": self.tracker.id_counter, "changes": changes}
-        else:
-            return None
+        return {"id_counter": self.tracker.id_counter, "changes": changes}
 
     def add_new_persons(self, response: dict[str]):
         id_counter = response["id_counter"]
-        changes: set[dict[str, int]] = response["changes"]
+        changes: list[dict[str, int]] = response["changes"]
 
         for change in changes:
             person = self.new_persons.pop(change["old_id"])
             person.track.track_id = change["new_id"]
-            self.tracker.id_counter -= 1
+            self.tracker.id_counter = id_counter
             self.active_persons[change["new_id"]] = person
-
-        assert self.tracker.id_counter == id_counter, "ID counter mismatch"
+            self.id_counter += 1
 
     def save_persons(self):
         if len(self.active_persons) > 0:
