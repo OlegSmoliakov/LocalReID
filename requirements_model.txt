@@ -7,3 +7,4 @@ ultralytics==8.3.25
 lapx==0.5.11
 gdown==5.2.0
 tensorboard==2.18.0
+torchreid==0.2.5
