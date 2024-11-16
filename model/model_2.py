@@ -42,7 +42,8 @@ class ObjectTracking:
 
         self.tracker = None
         self.model = None
-        self.persons: dict[int, Person] = {}
+        self.active_persons: dict[int, Person] = {}
+        self.new_persons: dict[int, Person] = {}
         self.model_name = path_to_model.split("/")[-1]
 
         self.load_model(path_to_model)
@@ -83,9 +84,7 @@ class ObjectTracking:
             (self.frame_width, self.frame_height),
         )
 
-    def process_frame(self, persons: dict[int, Person]):
-        self.persons = persons
-
+    def process_frame(self):
         ret, frame = self.cap.read()
         if not ret:
             return self.release_resources()
@@ -102,9 +101,9 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        # if self.frame_counter == 1 and len(tracks) > 0:
-        #     self.reid(frame, tracks)
-        #     self.save_persons()  # for debug only
+        if len(tracks) > len(self.active_persons):
+            self.reid(frame, tracks)
+            self.save_persons()  # for debug only
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
         marked_frame = self.draw_fps(marked_frame)
@@ -118,7 +117,7 @@ class ObjectTracking:
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
 
-        return self.persons
+        return self.new_persons if self.new_persons else False
 
     def release_resources(self):
         if self.output_video:
@@ -178,37 +177,31 @@ class ObjectTracking:
         track_id_list = tracks[:, 1]
 
         for track_id, bbox in zip(track_id_list, bbox_list):
-            false_detection = False
             x1, y1, x2, y2 = bbox
             cropped_img = frame[int(y1) : int(y2), int(x1) : int(x2)]
 
             current_track = self.get_current_track(track_id)
 
-            if track_id not in self.persons:
-                false_detection = self.check_false_detection(cropped_img, current_track)
-
-            # update persons dict
-            if not false_detection:
-                self.persons[track_id] = Person(track=current_track, img=cropped_img)
-
-        # Remove duplicates
-        self.remove_duplicates()
+            if track_id not in self.active_persons:
+                self.new_persons[track_id] = Person(track=current_track, img=cropped_img)
+            else:
+                self.active_persons[track_id] = Person(track=current_track, img=cropped_img)
 
     def remove_duplicates(self):
-        persons = self.persons.copy()
-        person_ids = list(self.persons.keys())
+        persons = self.active_persons.copy()
+        person_ids = list(self.active_persons.keys())
         log.debug(f"Person IDs: {person_ids}")
 
         for i in range(len(person_ids)):
             for j in range(i + 1, len(person_ids)):
                 person_id_1 = person_ids[i]
                 person_id_2 = person_ids[j]
-                person_1 = self.persons[person_id_1]
-                person_2 = self.persons[person_id_2]
+                person_1 = self.active_persons[person_id_1]
+                person_2 = self.active_persons[person_id_2]
 
                 if self.comparator.compare_by_similarity(person_1.img, person_2.img, 0.7):
                     persons.pop(person_id_2)
-        self.persons = persons
+        self.active_persons = persons
 
     def get_current_track(self, track_id):
         for track in self.tracker.active_tracks:
@@ -216,17 +209,38 @@ class ObjectTracking:
                 return track
         return None
 
-    def check_false_detection(self, cropped_img: np.ndarray, current_track: Track):
-        for person_id, person in self.persons.items():
-            if self.comparator.compare_by_similarity(person.img, cropped_img, 0.7):
-                current_track.track_id = person_id
-                self.tracker.id_counter = len(self.persons) - 1
-                return True
-        return False
+    def check_among_detected(self, new_persons: dict[int, Person]):
+        changes = set()
+
+        for new_person_id, new_person in new_persons.items():
+            for person_id, person in self.active_persons.items():
+                if self.comparator.compare_by_similarity(person.img, new_person.img, 0.7):
+                    changes.add({"old_id": new_person_id, "new_id": person_id})
+                    break
+            else:
+                # real new person on second camera
+                self.tracker.id_counter += 1
+
+        if changes:
+            return {"id_counter": self.tracker.id_counter, "changes": changes}
+        else:
+            return None
+
+    def add_new_persons(self, response: dict[str]):
+        id_counter = response["id_counter"]
+        changes: set[dict[str, int]] = response["changes"]
+
+        for change in changes:
+            person = self.new_persons.pop(change["old_id"])
+            person.track.track_id = change["new_id"]
+            self.tracker.id_counter -= 1
+            self.active_persons[change["new_id"]] = person
+
+        assert self.tracker.id_counter == id_counter, "ID counter mismatch"
 
     def save_persons(self):
-        if len(self.persons) > 0:
-            for track_id, person in self.persons.items():
+        if len(self.active_persons) > 0:
+            for track_id, person in self.active_persons.items():
                 cv2.imwrite(f"cache/person_{track_id}.png", person.img)
 
     def draw_tracks(self, frame: np.ndarray, tracks: np.ndarray):
