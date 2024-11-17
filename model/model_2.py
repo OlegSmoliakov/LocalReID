@@ -102,9 +102,12 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        if len(tracks) > len(self.active_persons):
-            self.reid(frame, tracks)
-            self.save_persons()  # for debug only
+        # if len(tracks) > 0:
+        #     max_val = max(tracks[:, 1]) + 1
+        # else:
+        #     max_val = 0
+        # if max_val > len(self.active_persons):
+        self.reid(frame, tracks)
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
         marked_frame = self.draw_fps(marked_frame)
@@ -118,14 +121,15 @@ class ObjectTracking:
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
 
-        new_persons = {}
-        for track_id, person in self.new_persons.items():
+        persons_to_send = {}
+        new_persons = self.new_persons.copy()
+        for track_id, person in new_persons.items():
             # wait for N frames before compare new persons
             N = 15
             if self.tracker.frame_no - person.last_frame > N:
-                new_persons[track_id] = person
+                persons_to_send[track_id] = self.new_persons[track_id]
 
-        return new_persons
+        return persons_to_send
 
     def release_resources(self):
         if self.output_video:
@@ -182,6 +186,9 @@ class ObjectTracking:
         return tracks
 
     def reid(self, frame: np.ndarray, tracks: np.ndarray):
+        if len(tracks) == 0:
+            return
+
         bbox_list = tracks[:, 0]
         track_id_list = tracks[:, 1]
 
@@ -191,12 +198,18 @@ class ObjectTracking:
 
             current_track = self.get_current_track(track_id)
 
-            if track_id not in self.active_persons:
+            if track_id in self.active_persons:
+                self.active_persons[track_id].track = current_track
+                self.active_persons[track_id].img = cropped_img
+            elif track_id in self.new_persons:
+                self.new_persons[track_id].track = current_track
+                self.new_persons[track_id].img = cropped_img
+            else:
                 self.new_persons[track_id] = Person(
                     track=current_track, img=cropped_img, last_frame=current_track.last_frame
                 )
-            else:
-                self.active_persons[track_id] = Person(track=current_track, img=cropped_img)
+
+        self.save_persons()  # for debug only
 
     def remove_duplicates(self):
         persons = self.active_persons.copy()
@@ -224,6 +237,8 @@ class ObjectTracking:
         changes = []
 
         for new_person_id, new_person in new_persons.items():
+            cv2.imwrite(f"cache/second_cam_person_{new_person_id}.png", new_person.img)
+
             for person_id, person in self.active_persons.items():
                 if self.comparator.compare_by_similarity(person.img, new_person.img, 0.7):
                     changes.append({"old_id": new_person_id, "new_id": person_id})
@@ -246,10 +261,13 @@ class ObjectTracking:
             self.active_persons[change["new_id"]] = person
             self.id_counter += 1
 
+        self.save_persons()  # for debug only
+
     def save_persons(self):
-        if len(self.active_persons) > 0:
-            for track_id, person in self.active_persons.items():
-                cv2.imwrite(f"cache/person_{track_id}.png", person.img)
+        for track_id, person in self.active_persons.items():
+            cv2.imwrite(f"cache/active_person_{track_id}.png", person.img)
+        for track_id, person in self.new_persons.items():
+            cv2.imwrite(f"cache/new_person_{track_id}.png", person.img)
 
     def draw_tracks(self, frame: np.ndarray, tracks: np.ndarray):
         if len(tracks) == 0:
