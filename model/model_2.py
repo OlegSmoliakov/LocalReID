@@ -102,11 +102,7 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        # if len(tracks) > 0:
-        #     max_val = max(tracks[:, 1]) + 1
-        # else:
-        #     max_val = 0
-        # if max_val > len(self.active_persons):
+        # if len(tracks) > 0 and (max(tracks[:, 1]) + 1) > len(self.active_persons):
         self.reid(frame, tracks)
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
@@ -122,8 +118,7 @@ class ObjectTracking:
                 return self.release_resources()
 
         persons_to_send = {}
-        new_persons = self.new_persons.copy()
-        for track_id, person in new_persons.items():
+        for track_id, person in self.new_persons.items():
             # wait for N frames before compare new persons
             N = 15
             if self.tracker.frame_no - person.last_frame > N:
@@ -150,7 +145,6 @@ class ObjectTracking:
         self.model = model
 
     def init_sfsort(self):
-        self.id_counter = 0
         self.colors = {}
 
         frame_rate = self.desired_fps
@@ -206,7 +200,7 @@ class ObjectTracking:
                 self.new_persons[track_id].img = cropped_img
             else:
                 self.new_persons[track_id] = Person(
-                    track=current_track, img=cropped_img, last_frame=current_track.last_frame
+                    current_track, cropped_img, current_track.last_frame
                 )
 
         self.save_persons()  # for debug only
@@ -233,10 +227,10 @@ class ObjectTracking:
                 return track
         return None
 
-    def check_among_detected(self, new_persons: dict[int, Person]):
+    def check_among_detected(self, second_cam_persons: dict[int, Person]):
         changes = []
 
-        for new_person_id, new_person in new_persons.items():
+        for new_person_id, new_person in second_cam_persons.items():
             cv2.imwrite(f"cache/second_cam_person_{new_person_id}.png", new_person.img)
 
             for person_id, person in self.active_persons.items():
@@ -259,7 +253,6 @@ class ObjectTracking:
             person.track.track_id = change["new_id"]
             self.tracker.id_counter = id_counter
             self.active_persons[change["new_id"]] = person
-            self.id_counter += 1
 
         self.save_persons()  # for debug only
 
