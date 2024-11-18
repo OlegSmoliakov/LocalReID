@@ -13,8 +13,8 @@ class Comparator:
     def __init__(self):
         self.model = FeatureExtractor(
             model_name="osnet_x1_0",  # or 'resnet50' for ResNet-50
-            model_path="model/osnet_x1_0_duke_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
-            # model_path="model/osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
+            # model_path="model/osnet_x1_0_duke_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
+            model_path="model/osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
             # model_path="model/osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
             # model_path="model/osnet_x1_0_imagenet.pt",  # pretrained Re-ID model
             # model_name="osnet_x0_25",  # or 'resnet50' for ResNet-50
@@ -22,17 +22,17 @@ class Comparator:
             device="cpu",  # or 'cpu' based on your hardware
         )
 
-    def _get_embeddings(self, imgs: list[int, np.ndarray]):
+    def _get_embeddings(self, imgs: list[int, np.ndarray] | np.ndarray):
         embeddings = self.model(imgs)
 
         return embeddings
 
-    def get_similarity_map(self, probe: np.ndarray, gallery: list[np.ndarray], threshold=0.7):
+    def get_similarity_map(self, probe: np.ndarray, gallery: dict[int, np.ndarray], threshold=0.7):
         similarity_map: dict[int, float] = {}
-        gallery_and_probe = self._preprocess(probe, gallery)
-        embeddings = self._get_embeddings(gallery_and_probe)
+        probe, gallery = self._preprocess(probe, gallery)
+        embeddings = self._get_embeddings([*gallery.values(), probe])
         probe_embed, gallery_embed = embeddings[-1], embeddings[:-1]
-        for i, embed in enumerate(gallery_embed):
+        for i, embed in zip(gallery, gallery_embed):
             if similarity := self.compare_by_similarity(probe_embed, embed, threshold):
                 similarity_map[i] = similarity
 
@@ -51,9 +51,9 @@ class Comparator:
 
         return similarity if similarity >= threshold else 0
 
-    def _preprocess(self, probe: np.ndarray, gallery: list[np.ndarray]):
+    def _preprocess(self, probe: np.ndarray, gallery: dict[int, np.ndarray]):
+        return probe, gallery
         images = [*gallery, probe]
-        return images
         # images = [*gallery]
 
         # Find the smallest image dimensions
@@ -85,18 +85,19 @@ class Comparator:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s: %(levelname)s: %(message)s")
 
-    image_0 = "cache/active_person_0.png"
-    image_1 = "cache/active_person_1.png"
-    # image_2 = "cache/new_person_2.png"
-    image_2 = "cache/active_person_2.png"
-    image_second_cam = "cache/second_cam_person_2.png"
+    images = [
+        "cache/active_person_0.png",
+        "cache/active_person_1.png",
+        "cache/active_person_2.png",
+    ]
 
-    gallery = map(cv2.imread, [image_0, image_1, image_2])
-    image_second_cam = cv2.imread(image_second_cam)
+    probe = "cache/second_cam_person_2.png"
+    gallery = map(cv2.imread, images)
+    probe = cv2.imread(probe)
 
     comparator = Comparator()
 
-    sim_map = comparator.get_similarity_map(image_second_cam, gallery)
+    sim_map = comparator.get_similarity_map(probe, gallery)
     print(sim_map)
 
 # downsize to small one include probe

@@ -166,3 +166,4 @@ cython_debug/
 draft*
 cache*
 .vscode/
+output*

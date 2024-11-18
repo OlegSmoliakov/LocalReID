@@ -227,8 +227,8 @@ class ObjectTracking:
             cv2.imwrite(f"cache/second_cam_person_{probe_id}.png", probe.img)  # for debug only
 
             self.colors[probe_id] = probe.color
-            gallery = [active_person.img for active_person in self.active_persons.values()]
-            sim_map = self.comparator.get_similarity_map(probe.img, gallery, 0.7)
+            gallery = {person_id: person.img for person_id, person in self.active_persons.items()}
+            sim_map = self.comparator.get_similarity_map(probe.img, gallery, 0.67)
             changes[probe_id] = sim_map
 
         return {"id_counter": self.tracker.id_counter, "changes": changes}
@@ -238,13 +238,20 @@ class ObjectTracking:
         try:
             changes: dict[int, dict[int, float]] = response["changes"]
         except KeyError:
-            self.tracker.id_counter = id_counter
+            if (step := self.tracker.id_counter - id_counter + 1) > 0:
+                for track in self.tracker.active_tracks:
+                    if track.track_id >= id_counter - 1:
+                        track.track_id += step
+                self.tracker.id_counter += step
+            else:
+                self.tracker.id_counter = id_counter
             return
 
         response = {}
+        track_ids = [track.track_id for track in self.tracker.active_tracks]
         for probe_id, sim_map in changes.items():
             for gallery_id, _ in sim_map.items():
-                if gallery_id in self.active_persons:
+                if gallery_id in track_ids:
                     continue
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
@@ -252,9 +259,8 @@ class ObjectTracking:
                 self.tracker.id_counter = id_counter
                 break
             else:
-                # real new person on second camera
+                # add new person
                 self.active_persons[probe_id] = self.new_persons.pop(probe_id)
-                self.tracker.id_counter += 1
                 response["id_counter"] = self.tracker.id_counter
 
         self.save_persons()  # for debug only
