@@ -162,8 +162,8 @@ cython_debug/
 #.idea/
 
 # Project specific
-*.pt
 draft*
 cache*
 .vscode/
 output*
+weights/

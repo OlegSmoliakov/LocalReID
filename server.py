@@ -8,8 +8,8 @@ import zmq
 from pyinstrument import Profiler
 from zmq.asyncio import Context
 
-from base import Command, Message
-from model.model_2 import ObjectTracking, Person
+from model.base import Command, Message
+from model.model import ObjectTracking, Person
 
 URL = "tcp://*:5555"
 

@@ -3,8 +3,9 @@ import logging
 
 import zmq
 from zmq.asyncio import Context
-from model.model_2 import ObjectTracking
-from base import Message, Command
+
+from model.base import Command, Message
+from model.model import ObjectTracking
 
 # SERVER_URL = "tcp://192.168.1.2:5555"
 SERVER_URL = "tcp://MacBook:5555"
