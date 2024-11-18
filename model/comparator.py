@@ -36,6 +36,11 @@ class Comparator:
             if similarity := self.compare_by_similarity(probe_embed, embed, threshold):
                 similarity_map[i] = similarity
 
+        # sort desc by value
+        similarity_map = dict(
+            sorted(similarity_map.items(), key=lambda item: item[1], reverse=True)
+        )
+
         return similarity_map
 
     def compare_by_similarity(self, embed_1, embed_2, threshold=0.7):

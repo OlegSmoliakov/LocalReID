@@ -190,13 +190,13 @@ class ObjectTracking:
 
         for track_id, bbox in zip(track_id_list, bbox_list):
             x1, y1, x2, y2 = map(int, bbox)
-            gap = 5
+            gap = 3
 
             # Check if the bounding box does not touch the frame boundaries
             if (
-                x1 > gap
+                x1 > gap * 3
                 and y1 > gap
-                and x2 < self.frame_width - gap
+                and x2 < self.frame_width - gap * 3
                 and y2 < self.frame_height - gap
             ):
                 cropped_img = frame[y1:y2, x1:x2]
@@ -221,46 +221,41 @@ class ObjectTracking:
                 return track
         return None
 
-    def check_among_detected(self, second_cam_persons: dict[int, Person]):
-        changes = []
+    def check_among_detected(self, persons_from_second_cam: dict[int, Person]):
+        changes = {}
+        for probe_id, probe in persons_from_second_cam.items():
+            cv2.imwrite(f"cache/second_cam_person_{probe_id}.png", probe.img)  # for debug only
 
-        for new_person_id, new_person in second_cam_persons.items():
-            cv2.imwrite(f"cache/second_cam_person_{new_person_id}.png", new_person.img)
-            sim_map = {}
-
-            img_list = [person.img for person in self.active_persons.values()]
-            sim_map = self.comparator.get_similarity_map(new_person.img, img_list, 0.7)
-
-            if sim_map:
-                person_id, sim_max = max(sim_map.items(), key=lambda x: x[1])
-                changes.append({"old_id": new_person_id, "new_id": person_id})
-            else:
-                # real new person on second camera
-                self.colors[new_person_id] = new_person.color
-                self.tracker.id_counter += 1
-                changes.append({"old_id": new_person_id, "new_id": new_person_id})
+            self.colors[probe_id] = probe.color
+            gallery = [active_person.img for active_person in self.active_persons.values()]
+            sim_map = self.comparator.get_similarity_map(probe.img, gallery, 0.7)
+            changes[probe_id] = sim_map
 
         return {"id_counter": self.tracker.id_counter, "changes": changes}
 
     def add_new_persons(self, response: dict[str]):
         id_counter = response["id_counter"]
         try:
-            changes: list[dict[str, int]] = response["changes"]
+            changes: dict[int, dict[int, float]] = response["changes"]
         except KeyError:
             self.tracker.id_counter = id_counter
             return
 
         response = {}
-        for change in changes:
-            if change["new_id"] in self.active_persons:
-                # in case if person_id already tracked
-                self.active_persons[change["old_id"]] = self.new_persons.pop(change["old_id"])
-                response["id_counter"] = self.tracker.id_counter
-            else:
-                person = self.new_persons.pop(change["old_id"])
-                person.track.track_id = change["new_id"]
-                self.active_persons[change["new_id"]] = person
+        for probe_id, sim_map in changes.items():
+            for gallery_id, _ in sim_map.items():
+                if gallery_id in self.active_persons:
+                    continue
+                person = self.new_persons.pop(probe_id)
+                person.track.track_id = gallery_id
+                self.active_persons[gallery_id] = person
                 self.tracker.id_counter = id_counter
+                break
+            else:
+                # real new person on second camera
+                self.active_persons[probe_id] = self.new_persons.pop(probe_id)
+                self.tracker.id_counter += 1
+                response["id_counter"] = self.tracker.id_counter
 
         self.save_persons()  # for debug only
 
