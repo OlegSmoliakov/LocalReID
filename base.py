@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-
-from model.model_2 import Person
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
 class Message:
     command: str
-    data: dict[int, Person] | None = None
+    data: Any = None
 
 
 class Command:

@@ -25,6 +25,7 @@ class Person:
     track: Track
     img: np.ndarray
     last_frame: int = None
+    color: tuple[int, int, int] = None
 
 
 class ObjectTracking:
@@ -69,6 +70,7 @@ class ObjectTracking:
         log.info(
             f"Input source:\nResolution: {self.frame_width}x{self.frame_height}, FPS: {frame_rate}"
         )
+        log.debug(f"Total number of frames: {self.cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
 
         time.sleep(0.2)  # give some time to open the camera on mac
 
@@ -120,8 +122,8 @@ class ObjectTracking:
         persons_to_send = {}
         for track_id, person in self.new_persons.items():
             # wait for N frames before compare new persons
-            N = 15
-            if self.tracker.frame_no - person.last_frame > N:
+            N = 0
+            if self.tracker.frame_no - person.last_frame == N:
                 persons_to_send[track_id] = self.new_persons[track_id]
 
         return persons_to_send
@@ -187,39 +189,31 @@ class ObjectTracking:
         track_id_list = tracks[:, 1]
 
         for track_id, bbox in zip(track_id_list, bbox_list):
-            x1, y1, x2, y2 = bbox
-            cropped_img = frame[int(y1) : int(y2), int(x1) : int(x2)]
+            x1, y1, x2, y2 = map(int, bbox)
+            gap = 5
 
-            current_track = self.get_current_track(track_id)
-
-            if track_id in self.active_persons:
-                self.active_persons[track_id].track = current_track
-                self.active_persons[track_id].img = cropped_img
-            elif track_id in self.new_persons:
-                self.new_persons[track_id].track = current_track
-                self.new_persons[track_id].img = cropped_img
-            else:
-                self.new_persons[track_id] = Person(
-                    current_track, cropped_img, current_track.last_frame
-                )
+            # Check if the bounding box does not touch the frame boundaries
+            if (
+                x1 > gap
+                and y1 > gap
+                and x2 < self.frame_width - gap
+                and y2 < self.frame_height - gap
+            ):
+                cropped_img = frame[y1:y2, x1:x2]
+                if track_id in self.active_persons:
+                    # update only if not marginal
+                    self.frame_width, self.frame_height
+                    self.active_persons[track_id].track.bbox
+                    self.active_persons[track_id].img = cropped_img
+                elif track_id in self.new_persons:
+                    self.new_persons[track_id].img = cropped_img
+                else:
+                    current_track = self.get_current_track(track_id)
+                    self.new_persons[track_id] = Person(
+                        current_track, cropped_img, current_track.last_frame, self.colors[track_id]
+                    )
 
         self.save_persons()  # for debug only
-
-    def remove_duplicates(self):
-        persons = self.active_persons.copy()
-        person_ids = list(self.active_persons.keys())
-        log.debug(f"Person IDs: {person_ids}")
-
-        for i in range(len(person_ids)):
-            for j in range(i + 1, len(person_ids)):
-                person_id_1 = person_ids[i]
-                person_id_2 = person_ids[j]
-                person_1 = self.active_persons[person_id_1]
-                person_2 = self.active_persons[person_id_2]
-
-                if self.comparator.compare_by_similarity(person_1.img, person_2.img, 0.7):
-                    persons.pop(person_id_2)
-        self.active_persons = persons
 
     def get_current_track(self, track_id):
         for track in self.tracker.active_tracks:
@@ -232,13 +226,17 @@ class ObjectTracking:
 
         for new_person_id, new_person in second_cam_persons.items():
             cv2.imwrite(f"cache/second_cam_person_{new_person_id}.png", new_person.img)
+            sim_map = {}
 
-            for person_id, person in self.active_persons.items():
-                if self.comparator.compare_by_similarity(person.img, new_person.img, 0.7):
-                    changes.append({"old_id": new_person_id, "new_id": person_id})
-                    break
+            img_list = [person.img for person in self.active_persons.values()]
+            sim_map = self.comparator.get_similarity_map(new_person.img, img_list, 0.7)
+
+            if sim_map:
+                person_id, sim_max = max(sim_map.items(), key=lambda x: x[1])
+                changes.append({"old_id": new_person_id, "new_id": person_id})
             else:
                 # real new person on second camera
+                self.colors[new_person_id] = new_person.color
                 self.tracker.id_counter += 1
                 changes.append({"old_id": new_person_id, "new_id": new_person_id})
 
@@ -246,15 +244,27 @@ class ObjectTracking:
 
     def add_new_persons(self, response: dict[str]):
         id_counter = response["id_counter"]
-        changes: list[dict[str, int]] = response["changes"]
-
-        for change in changes:
-            person = self.new_persons.pop(change["old_id"])
-            person.track.track_id = change["new_id"]
+        try:
+            changes: list[dict[str, int]] = response["changes"]
+        except KeyError:
             self.tracker.id_counter = id_counter
-            self.active_persons[change["new_id"]] = person
+            return
+
+        response = {}
+        for change in changes:
+            if change["new_id"] in self.active_persons:
+                # in case if person_id already tracked
+                self.active_persons[change["old_id"]] = self.new_persons.pop(change["old_id"])
+                response["id_counter"] = self.tracker.id_counter
+            else:
+                person = self.new_persons.pop(change["old_id"])
+                person.track.track_id = change["new_id"]
+                self.active_persons[change["new_id"]] = person
+                self.tracker.id_counter = id_counter
 
         self.save_persons()  # for debug only
+
+        return response
 
     def save_persons(self):
         for track_id, person in self.active_persons.items():
@@ -279,7 +289,6 @@ class ObjectTracking:
                     random.randrange(255),
                     random.randrange(255),
                 )
-
             color = self.colors[track_id]
 
             # Extract the bounding box coordinates

@@ -41,8 +41,13 @@ async def server():
 
     msg_1, msg_2 = None, None
 
+    # skip first N frames
+    N = 47
+    for _ in range(N):
+        detector.process_frame()
+
     while True:
-        msg = {message for message in (msg_1, msg_2) if message}
+        msg = [message for message in (msg_1, msg_2) if message]
 
         start_time = time.time()
         await socket.send_pyobj(msg)
@@ -60,7 +65,7 @@ async def server():
         log.debug(f"Process frame took: {time.time() - start_time:.4f}")
 
         start_time = time.time()
-        response: set[Message] = await socket.recv_pyobj()
+        response: list[Message] = await socket.recv_pyobj()
         log.debug(f"Received took: {time.time() - start_time:.4f}")
 
         msg_2 = None
@@ -70,12 +75,15 @@ async def server():
                 case Command.DETECT:
                     pass
                 case Command.ANS_NEW_PERSONS:
-                    detector.add_new_persons(message.data)
-                case Command.SEND_NEW_PERSONS:
-                    if changes := detector.check_among_detected(message.data):
+                    if changes := detector.add_new_persons(message.data):
                         msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
+                case Command.SEND_NEW_PERSONS:
+                    changes = detector.check_among_detected(message.data)
+                    msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
                 case Command.STOP:
                     exit()
+
+        log.debug(f"Current frame: {detector.tracker.frame_no}")
 
 
 if __name__ == "__main__":
