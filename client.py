@@ -46,17 +46,18 @@ async def client():
         response: list[Message] = await socket.recv_pyobj()
 
         for message in response:
-            command = message.command
-            log.debug(f"Received `{Command.get_name(command)}` command")
-
-            match command:
-                case Command.ANS_NEW_PERSONS:
+            log.debug(f"Received `{Command.get_name(message.command)}` command")
+            match message.command:
+                case Command.ANS_ADD_NEW_PERSONS:
                     if changes := detector.add_new_persons(message.data):
-                        msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
+                        msgs.append(Message(Command.ANS_ADD_NEW_PERSONS, changes))
+                case Command.ANS_SIM_MAP:
+                    if changes := detector.add_new_persons(message.data):
+                        msgs.append(Message(Command.ANS_ADD_NEW_PERSONS, changes))
                 case Command.SEND_NEW_PERSONS:
-                    log.debug(f"Check {[message.data.keys()]} ids among detected")
+                    log.debug(f"Check {[idx for idx in message.data]} ids among detected")
                     changes = detector.check_among_detected(message.data)
-                    msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
+                    msgs.append(Message(Command.ANS_SIM_MAP, changes))
                 case Command.STOP:
                     exit()
 
