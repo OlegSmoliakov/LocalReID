@@ -10,7 +10,7 @@ from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
 from src.comparator import Comparator
-from src.SFSORT import SFSORT, Track
+from src.SFSORT import SFSORT, Track, TrackState
 
 # find only person
 CLASSES = [0]
@@ -24,16 +24,16 @@ log.setLevel(logging.DEBUG)
 class Person:
     track: Track
     img: np.ndarray
-    prev_img: np.ndarray = None
     last_frame: int = None
     color: tuple[int, int, int] = None
+    prev_img: np.ndarray = None
 
 
 class ObjectTracking:
     def __init__(
         self,
         input_source: int | str,
-        path_to_model="model/yolov8n.pt",
+        path_to_model="src/weights/yolov8n.pt",
         output_video=None,
         show_output=True,
     ):
@@ -121,13 +121,16 @@ class ObjectTracking:
                 return self.release_resources()
 
         persons_to_send = {}
+        # if self.new_persons:
+        #     self.check_among_local()
         for track_id, person in self.new_persons.items():
             # wait for N frames before compare new persons
-            N = 0
+            N = 5
             if self.tracker.frame_no - person.last_frame == N:
-                if self.check_among_local(self.new_persons[track_id]):
-                    continue
                 persons_to_send[track_id] = self.new_persons[track_id]
+
+        for pers_id, pers in self.persons.items():
+            assert pers_id == pers.track.track_id
 
         return persons_to_send
 
@@ -190,28 +193,31 @@ class ObjectTracking:
 
         bbox_list = tracks[:, 0]
         track_id_list = tracks[:, 1]
+        h_gap = int(self.frame_width * 0.02)
+        v_gap = int(self.frame_height * 0.02)
 
         for track_id, bbox in zip(track_id_list, bbox_list):
             x1, y1, x2, y2 = map(int, bbox)
-            gap = 3
 
             # Check if the bounding box does not touch the frame boundaries
             if (
-                x1 > gap * 3
-                and y1 > gap
-                and x2 < self.frame_width - gap * 3
-                and y2 < self.frame_height - gap
+                x1 > h_gap
+                and y1 > v_gap
+                and x2 < self.frame_width - h_gap
+                and y2 < self.frame_height - v_gap
             ):
                 cropped_img = frame[y1:y2, x1:x2]
                 if track_id in self.persons:
-                    # update only if not marginal
-                    self.frame_width, self.frame_height
-                    self.persons[track_id].track.bbox
-                    self.persons[track_id].img = cropped_img
+                    # maybe add IoU check
+                    if self.persons[track_id].track.state != TrackState.Active:
+                        self.new_persons[track_id] = self.persons.pop(track_id)
+                    else:
+                        self.persons[track_id].img = cropped_img
                 elif track_id in self.new_persons:
                     self.new_persons[track_id].img = cropped_img
                 else:
                     current_track = self.get_current_track(track_id)
+                    self.generate_track_color(track_id)
                     self.new_persons[track_id] = Person(
                         current_track, cropped_img, current_track.last_frame, self.colors[track_id]
                     )
@@ -224,21 +230,23 @@ class ObjectTracking:
                 return track
         return None
 
-    def check_among_local(self, persons: dict[int, Person], threshold=0.75):
+    def check_among_local(self, threshold=0.8):
+        persons = self.new_persons.copy()
         response = self.check_among_detected(persons, threshold)
         try:
             changes: dict[int, dict[int, float]] = response["changes"]
             for probe_id, sim_map in changes.items():
+                if not sim_map:
+                    return False
                 gallery_id = max(sim_map, key=sim_map.get)
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
                 self.persons[gallery_id] = person
+                return True
         except KeyError:
             return False
 
-        return True
-
-    def check_among_detected(self, persons_from_second_cam: dict[int, Person], threshold=0.67):
+    def check_among_detected(self, persons_from_second_cam: dict[int, Person], threshold=0.69):
         changes = {}
         for probe_id, probe in persons_from_second_cam.items():
             cv2.imwrite(f"cache/second_cam_person_{probe_id}.png", probe.img)  # for debug only
@@ -258,10 +266,14 @@ class ObjectTracking:
             if (step := self.tracker.id_counter - id_counter + 1) > 0:
                 for track in self.tracker.active_tracks:
                     if track.track_id >= id_counter - 1:
+                        original_track = track.track_id
                         track.track_id += step
+                        if original_track in self.new_persons:
+                            self.new_persons[track.track_id] = self.new_persons.pop(original_track)
                 self.tracker.id_counter += step
             else:
                 self.tracker.id_counter = id_counter
+                log.debug(f"id_counter set to: {id_counter}")
             return
 
         response = {}
@@ -274,11 +286,13 @@ class ObjectTracking:
                 person.track.track_id = gallery_id
                 self.persons[gallery_id] = person
                 self.tracker.id_counter = id_counter
+                log.info(f"Person_id changed: {probe_id} -> {gallery_id}")
                 break
             else:
                 # add new person
                 self.persons[probe_id] = self.new_persons.pop(probe_id)
                 response["id_counter"] = self.tracker.id_counter
+                log.info(f"New person added with id: {probe_id}")
 
         self.save_persons()  # for debug only
 
@@ -301,12 +315,7 @@ class ObjectTracking:
         # Visualize tracks
         for idx, (track_id, bbox) in enumerate(zip(track_id_list, bbox_list)):
             # Define a new color for newly detected tracks
-            if track_id not in self.colors:
-                self.colors[track_id] = (
-                    random.randrange(255),
-                    random.randrange(255),
-                    random.randrange(255),
-                )
+            self.generate_track_color(track_id)
             color = self.colors[track_id]
 
             # Extract the bounding box coordinates
@@ -331,6 +340,14 @@ class ObjectTracking:
 
         return frame
 
+    def generate_track_color(self, track_id):
+        if track_id not in self.colors:
+            self.colors[track_id] = (
+                random.randrange(255),
+                random.randrange(255),
+                random.randrange(255),
+            )
+
     def draw_fps(self, frame):
         self.frame_counter += 1
         elapsed_time = time.time() - self.start_time
@@ -353,5 +370,5 @@ if __name__ == "__main__":
     capture_device = 1
     input_video = "draft/campus4-c0.avi"
     # out_path = "output"
-    detector = ObjectTracking(input_video, "model/yolov8n.pt")
+    detector = ObjectTracking(input_video, "src/weights/yolov8n.pt")
     detector()

@@ -4,8 +4,8 @@ import logging
 import zmq
 from zmq.asyncio import Context
 
-from model.base import Command, Message
-from model.model import ObjectTracking
+from src.base import Command, Message
+from src.model import ObjectTracking
 
 # SERVER_URL = "tcp://192.168.1.2:5555"
 SERVER_URL = "tcp://MacBook:5555"
@@ -23,7 +23,7 @@ def init_detector():
     # out_path = "output"
     out_path = None
 
-    detector = ObjectTracking(source, "model/yolov8n.pt", out_path)
+    detector = ObjectTracking(source, "src/weights/yolov8n.pt", out_path)
 
     return detector
 
@@ -40,38 +40,42 @@ async def client():
     log.info("Waiting message from server")
 
     while True:
+        msgs = []
+
+        # receive messages from server
         response: list[Message] = await socket.recv_pyobj()
 
-        msg_2 = None
         for message in response:
-            log.debug(f"Received `{message.command}` command")
-            match message.command:
+            command = message.command
+            log.debug(f"Received `{Command.get_name(command)}` command")
+
+            match command:
                 case Command.DETECT:
                     pass
                 case Command.ANS_NEW_PERSONS:
                     if changes := detector.add_new_persons(message.data):
-                        msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
-                        log.debug("Send `ans_new_persons` command")
+                        msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
                 case Command.SEND_NEW_PERSONS:
+                    log.debug(f"Check {message.data.keys()} ids among detected")
                     changes = detector.check_among_detected(message.data)
-                    msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
-                    log.debug("Send `ans_new_persons` command")
+                    msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
                 case Command.STOP:
                     exit()
 
+        # process frame
         new_persons = detector.process_frame()
         if new_persons is None:
             await socket.send_pyobj({Message(Command.STOP)})
+            log.debug("Sent `STOP` command")
         elif new_persons:
-            msg_1 = Message(Command.SEND_NEW_PERSONS, new_persons)
-            log.debug("Send `send_new_persons` command")
-        else:
-            msg_1 = None
+            msgs.append(Message(Command.SEND_NEW_PERSONS, new_persons))
 
-        msg = [message for message in (msg_1, msg_2) if message]
-        await socket.send_pyobj(msg)
+        # send messages to server
+        await socket.send_pyobj(msgs)
+        for msg in msgs:
+            log.debug(f"Sent `{Command.get_name(msg.command)}` command")
 
-        log.debug(f"Current frame: {detector.tracker.frame_no}")
+        # log.debug(f"Current frame: {detector.tracker.frame_no}")
 
 
 if __name__ == "__main__":

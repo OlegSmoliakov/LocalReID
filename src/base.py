@@ -4,7 +4,7 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class Message:
-    command: str
+    command: int
     data: Any = None
 
 
@@ -14,3 +14,15 @@ class Command:
     DETECT = 2
     SEND_NEW_PERSONS = 3
     ANS_NEW_PERSONS = 4
+
+    _value_to_name = {
+        0: "START",
+        1: "STOP",
+        2: "DETECT",
+        3: "SEND_NEW_PERSONS",
+        4: "ANS_NEW_PERSONS",
+    }
+
+    @classmethod
+    def get_name(cls, value):
+        return cls._value_to_name.get(value, None)
