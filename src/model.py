@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import time
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from ultralytics.engine.results import Results
 
 from src.comparator import Comparator
 from src.SFSORT import SFSORT, Track, TrackState
+from src.base import MODELS_DIR
 
 # find only person
 CLASSES = [0]
@@ -33,7 +35,7 @@ class ObjectTracking:
     def __init__(
         self,
         input_source: int | str,
-        path_to_model="src/weights/yolov8n.pt",
+        path_to_model=os.path.join(MODELS_DIR, "yolov8n.pt"),
         output_video=None,
         show_output=True,
     ):
@@ -372,5 +374,5 @@ if __name__ == "__main__":
     capture_device = 1
     input_video = "draft/campus4-c0.avi"
     # out_path = "output"
-    detector = ObjectTracking(input_video, "src/weights/yolov8n.pt")
+    detector = ObjectTracking(input_video)
     detector()

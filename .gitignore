@@ -166,4 +166,4 @@ draft*
 cache*
 .vscode/
 output*
-weights/
+models/

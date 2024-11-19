@@ -39,9 +39,8 @@ async def client():
 
     log.info("Waiting message from server")
 
+    msgs: list[Message] = []
     while True:
-        msgs = []
-
         # receive messages from server
         response: list[Message] = await socket.recv_pyobj()
 
@@ -73,6 +72,7 @@ async def client():
         await socket.send_pyobj(msgs)
         for msg in msgs:
             log.debug(f"Sent `{Command.get_name(msg.command)}` command")
+        msgs = []
 
         # log.debug(f"Current frame: {detector.tracker.frame_no}")
 

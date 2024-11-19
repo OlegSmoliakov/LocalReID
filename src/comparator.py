@@ -1,4 +1,5 @@
 import logging
+import os
 
 import cv2
 import numpy as np
@@ -6,17 +7,24 @@ import torch
 import torch.nn.functional as F
 from torchreid.reid.utils import FeatureExtractor
 
+from src.base import MODELS_DIR
+
 log = logging.getLogger(__name__)
+
+
+MODELS = {
+    "market": "osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
+    "msmt17": "osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0_0015_b64_fb10.pth",
+    "duke": "osnet_x1_0_duke_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
+    "imagenet": "osnet_x1_0_imagenet.pt",
+}
 
 
 class Comparator:
     def __init__(self):
         self.model = FeatureExtractor(
             model_name="osnet_x1_0",  # or 'resnet50' for ResNet-50
-            model_path="src/weights/osnet_x1_0_duke_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
-            # model_path="src/weights/osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
-            # model_path="src/weights/osnet_x1_0_market_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth",
-            # model_path="src/weights/osnet_x1_0_imagenet.pt",  # pretrained Re-ID model
+            model_path=os.path.join(MODELS_DIR, MODELS["msmt17"]),
             device="cpu",  # or 'cpu' based on your hardware
         )
 
