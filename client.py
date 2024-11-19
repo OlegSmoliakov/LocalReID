@@ -50,13 +50,11 @@ async def client():
             log.debug(f"Received `{Command.get_name(command)}` command")
 
             match command:
-                case Command.DETECT:
-                    pass
                 case Command.ANS_NEW_PERSONS:
                     if changes := detector.add_new_persons(message.data):
                         msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
                 case Command.SEND_NEW_PERSONS:
-                    log.debug(f"Check {message.data.keys()} ids among detected")
+                    log.debug(f"Check {[message.data.keys()]} ids among detected")
                     changes = detector.check_among_detected(message.data)
                     msgs.append(Message(Command.ANS_NEW_PERSONS, changes))
                 case Command.STOP:
