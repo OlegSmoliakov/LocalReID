@@ -39,47 +39,47 @@ async def server():
 
     log.info("Waiting for client...")
 
-    msg_1, msg_2 = None, None
-
     # skip first N frames
     N = 47
     for _ in range(N):
         detector.process_frame()
 
     while True:
-        msg = [message for message in (msg_1, msg_2) if message]
+        msgs: list[Message] = []
 
         start_time = time.time()
-        await socket.send_pyobj(msg)
+        await socket.send_pyobj(msgs)
         # log.debug(f"Sent took: {time.time() - start_time:.4f}")
+        for msg in msgs:
+            log.debug(f"Sent `{Command.get_name(msg.command)}` command")
 
         start_time = time.time()
         new_persons = detector.process_frame()
         if new_persons is None:
             await socket.send_pyobj({Message(Command.STOP)})
+            log.debug("Video stopped, sent `STOP` command")
             break
         elif new_persons:
-            msg_1 = Message(Command.SEND_NEW_PERSONS, new_persons)
-        else:
-            msg_1 = None
+            msgs.append(Message(Command.SEND_NEW_PERSONS, new_persons))
         # log.debug(f"Process frame took: {time.time() - start_time:.4f}")
 
         start_time = time.time()
         response: list[Message] = await socket.recv_pyobj()
         # log.debug(f"Received took: {time.time() - start_time:.4f}")
 
-        msg_2 = None
         for message in response:
-            log.debug(f"Received `{message.command}` command")
+            log.debug(f"Received `{Command.get_name(message.command)}` command")
             match message.command:
-                case Command.DETECT:
-                    pass
-                case Command.ANS_NEW_PERSONS:
+                case Command.ANS_ADD_NEW_PERSONS:
                     if changes := detector.add_new_persons(message.data):
-                        msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
+                        msgs.append(Message(Command.ANS_ADD_NEW_PERSONS, changes))
+                case Command.ANS_SIM_MAP:
+                    if changes := detector.add_new_persons(message.data):
+                        msgs.append(Message(Command.ANS_ADD_NEW_PERSONS, changes))
                 case Command.SEND_NEW_PERSONS:
+                    log.debug(f"Check {[idx for idx in message.data]} ids among detected")
                     changes = detector.check_among_detected(message.data)
-                    msg_2 = Message(Command.ANS_NEW_PERSONS, changes)
+                    msgs.append(Message(Command.ANS_SIM_MAP, changes))
                 case Command.STOP:
                     exit()
 

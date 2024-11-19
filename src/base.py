@@ -11,16 +11,16 @@ class Message:
 class Command:
     START = 0
     STOP = 1
-    DETECT = 2
-    SEND_NEW_PERSONS = 3
-    ANS_NEW_PERSONS = 4
+    SEND_NEW_PERSONS = 2
+    ANS_SIM_MAP = 3
+    ANS_ADD_NEW_PERSONS = 4
 
     _value_to_name = {
         0: "START",
         1: "STOP",
-        2: "DETECT",
-        3: "SEND_NEW_PERSONS",
-        4: "ANS_NEW_PERSONS",
+        2: "SEND_NEW_PERSONS",
+        3: "ANS_SIM_MAP",
+        4: "ANS_ADD_NEW_PERSONS",
     }
 
     @classmethod

@@ -272,6 +272,7 @@ class ObjectTracking:
                         if original_track in self.new_persons:
                             self.new_persons[track.track_id] = self.new_persons.pop(original_track)
                 self.tracker.id_counter += step
+                log.debug(f"id_counter set to: {id_counter}")
             else:
                 self.tracker.id_counter = id_counter
                 log.debug(f"id_counter set to: {id_counter}")
