@@ -105,7 +105,6 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        # if len(tracks) > 0 and (max(tracks[:, 1]) + 1) > len(self.persons):
         self.reid(frame, tracks)
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
@@ -120,6 +119,8 @@ class ObjectTracking:
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
 
+        # if self.new_persons:
+        #     self.check_among_local()
         persons_to_send = {}
         # if self.new_persons:
         #     self.check_among_local()

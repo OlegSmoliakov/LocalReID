@@ -8,8 +8,8 @@ import zmq
 from pyinstrument import Profiler
 from zmq.asyncio import Context
 
-from model.base import Command, Message
-from model.model import ObjectTracking, Person
+from src.base import Command, Message
+from src.model import ObjectTracking, Person
 
 URL = "tcp://*:5555"
 
@@ -24,7 +24,7 @@ def init_detector():
     out_path = "output"
     # out_path = None
 
-    detector = ObjectTracking(source, "model/yolov8n.pt", out_path)
+    detector = ObjectTracking(source, "src/weights/yolov8n.pt", out_path)
 
     return detector
 
@@ -51,7 +51,7 @@ async def server():
 
         start_time = time.time()
         await socket.send_pyobj(msg)
-        log.debug(f"Sent took: {time.time() - start_time:.4f}")
+        # log.debug(f"Sent took: {time.time() - start_time:.4f}")
 
         start_time = time.time()
         new_persons = detector.process_frame()
@@ -62,11 +62,11 @@ async def server():
             msg_1 = Message(Command.SEND_NEW_PERSONS, new_persons)
         else:
             msg_1 = None
-        log.debug(f"Process frame took: {time.time() - start_time:.4f}")
+        # log.debug(f"Process frame took: {time.time() - start_time:.4f}")
 
         start_time = time.time()
         response: list[Message] = await socket.recv_pyobj()
-        log.debug(f"Received took: {time.time() - start_time:.4f}")
+        # log.debug(f"Received took: {time.time() - start_time:.4f}")
 
         msg_2 = None
         for message in response:
@@ -83,7 +83,7 @@ async def server():
                 case Command.STOP:
                     exit()
 
-        log.debug(f"Current frame: {detector.tracker.frame_no}")
+        # log.debug(f"Current frame: {detector.tracker.frame_no}")
 
 
 if __name__ == "__main__":
