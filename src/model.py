@@ -10,7 +10,7 @@ from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
 from src.comparator import Comparator
-from src.SFSORT import SFSORT, Track
+from src.SFSORT import SFSORT, Track, TrackState
 
 # find only person
 CLASSES = [0]
@@ -24,16 +24,16 @@ log.setLevel(logging.DEBUG)
 class Person:
     track: Track
     img: np.ndarray
-    prev_img: np.ndarray = None
     last_frame: int = None
     color: tuple[int, int, int] = None
+    prev_img: np.ndarray = None
 
 
 class ObjectTracking:
     def __init__(
         self,
         input_source: int | str,
-        path_to_model="model/yolov8n.pt",
+        path_to_model="src/weights/yolov8n.pt",
         output_video=None,
         show_output=True,
     ):
@@ -105,7 +105,6 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        # if len(tracks) > 0 and (max(tracks[:, 1]) + 1) > len(self.persons):
         self.reid(frame, tracks)
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
@@ -120,13 +119,13 @@ class ObjectTracking:
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
 
+        # if self.new_persons:
+        #     self.check_among_local()
         persons_to_send = {}
         for track_id, person in self.new_persons.items():
             # wait for N frames before compare new persons
-            N = 0
+            N = 5
             if self.tracker.frame_no - person.last_frame == N:
-                if self.check_among_local(self.new_persons[track_id]):
-                    continue
                 persons_to_send[track_id] = self.new_persons[track_id]
 
         return persons_to_send
@@ -212,6 +211,7 @@ class ObjectTracking:
                     self.new_persons[track_id].img = cropped_img
                 else:
                     current_track = self.get_current_track(track_id)
+                    self.generate_track_color(track_id)
                     self.new_persons[track_id] = Person(
                         current_track, cropped_img, current_track.last_frame, self.colors[track_id]
                     )
@@ -224,19 +224,25 @@ class ObjectTracking:
                 return track
         return None
 
-    def check_among_local(self, persons: dict[int, Person], threshold=0.75):
+    def check_among_local(self, threshold=0.8):
+        persons = {
+            idx: person
+            for idx, person in self.persons.items()
+            if person.track.state != TrackState.Active
+        }
         response = self.check_among_detected(persons, threshold)
         try:
             changes: dict[int, dict[int, float]] = response["changes"]
             for probe_id, sim_map in changes.items():
+                if not sim_map:
+                    return False
                 gallery_id = max(sim_map, key=sim_map.get)
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
                 self.persons[gallery_id] = person
+                return True
         except KeyError:
             return False
-
-        return True
 
     def check_among_detected(self, persons_from_second_cam: dict[int, Person], threshold=0.67):
         changes = {}
@@ -301,12 +307,7 @@ class ObjectTracking:
         # Visualize tracks
         for idx, (track_id, bbox) in enumerate(zip(track_id_list, bbox_list)):
             # Define a new color for newly detected tracks
-            if track_id not in self.colors:
-                self.colors[track_id] = (
-                    random.randrange(255),
-                    random.randrange(255),
-                    random.randrange(255),
-                )
+            self.generate_track_color(track_id)
             color = self.colors[track_id]
 
             # Extract the bounding box coordinates
@@ -331,6 +332,14 @@ class ObjectTracking:
 
         return frame
 
+    def generate_track_color(self, track_id):
+        if track_id not in self.colors:
+            self.colors[track_id] = (
+                random.randrange(255),
+                random.randrange(255),
+                random.randrange(255),
+            )
+
     def draw_fps(self, frame):
         self.frame_counter += 1
         elapsed_time = time.time() - self.start_time
@@ -353,5 +362,5 @@ if __name__ == "__main__":
     capture_device = 1
     input_video = "draft/campus4-c0.avi"
     # out_path = "output"
-    detector = ObjectTracking(input_video, "model/yolov8n.pt")
+    detector = ObjectTracking(input_video, "src/weights/yolov8n.pt")
     detector()
