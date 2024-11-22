@@ -18,10 +18,10 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 def init_detector():
     # source = 1
-    source = "draft/campus4-c2.avi"
+    source = "draft\4p-c1.avi"
 
-    # out_path = "output"
-    out_path = None
+    out_path = "output"
+    # out_path = None
 
     detector = ObjectTracking(source, output_video=out_path)
 
@@ -58,6 +58,7 @@ async def client():
                     changes = detector.check_among_detected(message.data)
                     msgs.append(Message(Command.ANS_SIM_MAP, changes))
                 case Command.STOP:
+                    detector.release_resources()
                     exit()
 
         # process frame
