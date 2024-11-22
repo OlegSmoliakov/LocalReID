@@ -23,7 +23,7 @@ def init_detector():
     # out_path = "output"
     out_path = None
 
-    detector = ObjectTracking(source, "src/weights/yolov8n.pt", out_path)
+    detector = ObjectTracking(source, output_video=out_path)
 
     return detector
 

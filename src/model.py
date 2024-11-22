@@ -10,9 +10,9 @@ import torch
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from src.comparator import Comparator
-from src.SFSORT import SFSORT, Track, TrackState
 from src.base import MODELS_DIR
+from src.comparator import Comparator
+from src.SFSORT import SFSORT, Track
 
 # find only person
 CLASSES = [0]
@@ -29,6 +29,7 @@ class Person:
     last_frame: int = None
     color: tuple[int, int, int] = None
     prev_img: np.ndarray = None
+    lost: bool = False
 
 
 class ObjectTracking:
@@ -107,7 +108,7 @@ class ObjectTracking:
         )
 
         tracks = self.sort_sfsort(results)
-        self.reid(frame, tracks)
+        persons_to_send = self.reid(frame)
 
         marked_frame = self.draw_tracks(frame.copy(), tracks)
         marked_frame = self.draw_fps(marked_frame)
@@ -120,20 +121,6 @@ class ObjectTracking:
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 return self.release_resources()
-
-        # if self.new_persons:
-        #     self.check_among_local()
-        persons_to_send = {}
-        # if self.new_persons:
-        #     self.check_among_local()
-        for track_id, person in self.new_persons.items():
-            # wait for N frames before compare new persons
-            N = 5
-            if self.tracker.frame_no - person.last_frame == N:
-                persons_to_send[track_id] = self.new_persons[track_id]
-
-        for pers_id, pers in self.persons.items():
-            assert pers_id == pers.track.track_id
 
         return persons_to_send
 
@@ -175,7 +162,7 @@ class ObjectTracking:
             "new_track_th": 0.5,
             "new_track_th_m": 0.08,
             "marginal_timeout": 2 * frame_rate,
-            "central_timeout": 5 * frame_rate,
+            "central_timeout": 8 * frame_rate,
             "horizontal_margin": frame_width // 10,
             "vertical_margin": frame_height // 10,
             "frame_width": frame_width,
@@ -186,20 +173,43 @@ class ObjectTracking:
 
     def sort_sfsort(self, results: list[Results]):
         prediction_results = results[0].boxes.cpu().numpy()
+        self.boxes = prediction_results.xyxy.copy()
         tracks = self.tracker.update(prediction_results.xyxy, prediction_results.conf)
 
         return tracks
 
-    def reid(self, frame: np.ndarray, tracks: np.ndarray):
-        if len(tracks) == 0:
-            return
+    def reid(self, frame: np.ndarray):
+        if self.tracker.active_tracks:
+            self.process_active_tracks(frame)
 
+        if self.tracker.lost_tracks:
+            self.process_lost_tracks()
+
+        self.save_persons()  # for debug only
+
+        persons_to_send = {}
+        for track_id, person in self.new_persons.items():
+            # wait for N frames before sending new persons
+            N = 5
+            if self.tracker.frame_no - person.last_frame == N:
+                persons_to_send[track_id] = self.new_persons[track_id]
+
+        return persons_to_send
+
+    def process_active_tracks(self, frame):
+        tracks = np.asarray(
+            [[x.bbox, x.track_id] for x in self.tracker.active_tracks], dtype=object
+        )
         bbox_list = tracks[:, 0]
         track_id_list = tracks[:, 1]
-        h_gap = int(self.frame_width * 0.02)
+        h_gap = int(self.frame_width * 0.03)
         v_gap = int(self.frame_height * 0.02)
 
-        for track_id, bbox in zip(track_id_list, bbox_list):
+        iou_matrix = SFSORT.calculate_cost(self.tracker.active_tracks, self.boxes, True)
+
+        for track_id, bbox, iou in zip(track_id_list, bbox_list, iou_matrix):
+            # delete the diagonal elements from the IoU matrix
+            iou = np.delete(iou, np.where(iou == 1.0)[0])
             x1, y1, x2, y2 = map(int, bbox)
 
             # Check if the bounding box does not touch the frame boundaries
@@ -208,14 +218,18 @@ class ObjectTracking:
                 and y1 > v_gap
                 and x2 < self.frame_width - h_gap
                 and y2 < self.frame_height - v_gap
+                and iou.max() < 0.9
             ):
                 cropped_img = frame[y1:y2, x1:x2]
+
+                # if (
+                #     self.persons[track_id].lost
+                #     and self.persons[track_id].track.track_id != track_id
+                # ):
+                #     self.check_among_detected({track_id: self.persons[track_id]}, 0.6)
+
                 if track_id in self.persons:
-                    # maybe add IoU check
-                    if self.persons[track_id].track.state != TrackState.Active:
-                        self.new_persons[track_id] = self.persons.pop(track_id)
-                    else:
-                        self.persons[track_id].img = cropped_img
+                    self.persons[track_id].img = cropped_img
                 elif track_id in self.new_persons:
                     self.new_persons[track_id].img = cropped_img
                 else:
@@ -225,7 +239,10 @@ class ObjectTracking:
                         current_track, cropped_img, current_track.last_frame, self.colors[track_id]
                     )
 
-        self.save_persons()  # for debug only
+    def process_lost_tracks(self):
+        for track in self.tracker.lost_tracks:
+
+            self.persons[track.track_id].lost = True
 
     def get_current_track(self, track_id):
         for track in self.tracker.active_tracks:
@@ -244,6 +261,7 @@ class ObjectTracking:
                 gallery_id = max(sim_map, key=sim_map.get)
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
+                person.color = self.colors[gallery_id]
                 self.persons[gallery_id] = person
                 return True
         except KeyError:
@@ -273,6 +291,8 @@ class ObjectTracking:
                         track.track_id += step
                         if original_track in self.new_persons:
                             self.new_persons[track.track_id] = self.new_persons.pop(original_track)
+                            self.generate_track_color(track.track_id)
+                            self.new_persons[track.track_id].color = self.colors[track.track_id]
                 self.tracker.id_counter += step
                 log.debug(f"id_counter set to: {id_counter}")
             else:
@@ -283,11 +303,19 @@ class ObjectTracking:
         response = {}
         track_ids = [track.track_id for track in self.tracker.active_tracks]
         for probe_id, sim_map in changes.items():
-            for gallery_id, _ in sim_map.items():
+            for gallery_id, sim in sim_map.items():
                 if gallery_id in track_ids:
                     continue
+                if gallery_id in self.persons:
+                    # check if new person absolutely not similar to received one
+                    local_sim_map = self.comparator.get_similarity_map(
+                        self.new_persons[probe_id].img, {0: self.persons[gallery_id].img}, 0.6
+                    )
+                    if not local_sim_map:
+                        continue
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
+                person.color = self.colors[gallery_id]
                 self.persons[gallery_id] = person
                 self.tracker.id_counter = id_counter
                 log.info(f"Person_id changed: {probe_id} -> {gallery_id}")
