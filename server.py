@@ -24,7 +24,7 @@ def init_detector():
     out_path = "output"
     # out_path = None
 
-    detector = ObjectTracking(source, "src/weights/yolov8n.pt", out_path)
+    detector = ObjectTracking(source, output_video=out_path)
 
     return detector
 
@@ -44,15 +44,11 @@ async def server():
     for _ in range(N):
         detector.process_frame()
 
+    msgs: list[Message] = []
+    await socket.send_pyobj(msgs)
+
     while True:
-        msgs: list[Message] = []
-
-        start_time = time.time()
-        await socket.send_pyobj(msgs)
-        # log.debug(f"Sent took: {time.time() - start_time:.4f}")
-        for msg in msgs:
-            log.debug(f"Sent `{Command.get_name(msg.command)}` command")
-
+        # process frame
         start_time = time.time()
         new_persons = detector.process_frame()
         if new_persons is None:
@@ -63,10 +59,18 @@ async def server():
             msgs.append(Message(Command.SEND_NEW_PERSONS, new_persons))
         # log.debug(f"Process frame took: {time.time() - start_time:.4f}")
 
+        # send messages
+        start_time = time.time()
+        await socket.send_pyobj(msgs)
+        # log.debug(f"Sent took: {time.time() - start_time:.4f}")
+        for msg in msgs:
+            log.debug(f"Sent `{Command.get_name(msg.command)}` command")
+        msgs = []
+
+        # receive messages
         start_time = time.time()
         response: list[Message] = await socket.recv_pyobj()
         # log.debug(f"Received took: {time.time() - start_time:.4f}")
-
         for message in response:
             log.debug(f"Received `{Command.get_name(message.command)}` command")
             match message.command:
