@@ -85,6 +85,7 @@ async def server():
                     changes = detector.check_among_detected(message.data)
                     msgs.append(Message(Command.ANS_SIM_MAP, changes))
                 case Command.STOP:
+                    detector.release_resources()
                     exit()
 
         # log.debug(f"Current frame: {detector.tracker.frame_no}")

@@ -240,9 +240,12 @@ class ObjectTracking:
                     )
 
     def process_lost_tracks(self):
-        for track in self.tracker.lost_tracks:
-
-            self.persons[track.track_id].lost = True
+        # for track in self.tracker.lost_tracks:
+        #     try:
+        #         self.persons[track.track_id].lost = True
+        #     except KeyError:
+        #         self.new_persons[track.track_id].lost = True
+        pass
 
     def get_current_track(self, track_id):
         for track in self.tracker.active_tracks:
@@ -267,7 +270,7 @@ class ObjectTracking:
         except KeyError:
             return False
 
-    def check_among_detected(self, persons_from_second_cam: dict[int, Person], threshold=0.69):
+    def check_among_detected(self, persons_from_second_cam: dict[int, Person], threshold=0.63):
         changes = {}
         for probe_id, probe in persons_from_second_cam.items():
             cv2.imwrite(f"cache/second_cam_person_{probe_id}.png", probe.img)  # for debug only
