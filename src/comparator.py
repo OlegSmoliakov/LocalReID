@@ -24,7 +24,7 @@ class Comparator:
     def __init__(self):
         self.model = FeatureExtractor(
             model_name="osnet_x1_0",  # or 'resnet50' for ResNet-50
-            model_path=os.path.join(MODELS_DIR, MODELS["msmt17"]),
+            model_path=os.path.join(MODELS_DIR, MODELS["duke"]),
             device="cpu",  # or 'cpu' based on your hardware
         )
 
