@@ -4,7 +4,14 @@ torch==2.2.2
 torchvision==0.17.2
 torchaudio==2.2.2
 ultralytics==8.3.25
-lapx==0.5.11
+
+# torchreid
+torchreid==0.2.5
 gdown==5.2.0
 tensorboard==2.18.0
-torchreid==0.2.5
+
+# client-server 
+pyzmq==26.2.0
+
+# SFSORT
+lapx==0.5.11
