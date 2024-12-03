@@ -1,15 +1,13 @@
 import asyncio
 import logging
+import os
 import time
-import zlib
 
-import numpy as np
 import zmq
-from pyinstrument import Profiler
 from zmq.asyncio import Context
 
 from src.base import Command, Message
-from src.model import ObjectTracking, Person
+from src.model import ObjectTracking
 
 URL = "tcp://*:5555"
 
@@ -21,7 +19,7 @@ def init_detector():
     # source = 1
     source = "draft/campus4-c0.avi"
 
-    out_path = "output"
+    out_path = "output_" + os.path.basename(source).split(".")[0]
     # out_path = None
 
     detector = ObjectTracking(source, output_video=out_path)
@@ -41,8 +39,10 @@ async def server():
 
     # skip first N frames
     N = 47
+    # N = 40
     for _ in range(N):
-        detector.process_frame()
+        # detector.process_frame()
+        detector.cap.read()
 
     msgs: list[Message] = []
     await socket.send_pyobj(msgs)
@@ -68,7 +68,7 @@ async def server():
         msgs = []
 
         # receive messages
-        start_time = time.time()
+        start_time = time.time()  # noqa: F841
         response: list[Message] = await socket.recv_pyobj()
         # log.debug(f"Received took: {time.time() - start_time:.4f}")
         for message in response:
