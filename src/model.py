@@ -317,6 +317,7 @@ class ObjectTracking:
                         continue
                 person = self.new_persons.pop(probe_id)
                 person.track.track_id = gallery_id
+                self.generate_track_color(gallery_id)
                 person.color = self.colors[gallery_id]
                 self.persons[gallery_id] = person
                 self.tracker.id_counter = id_counter
