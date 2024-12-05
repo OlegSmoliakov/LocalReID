@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 import zmq
 from zmq.asyncio import Context
@@ -18,9 +19,9 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 def init_detector():
     # source = 1
-    source = "draft\4p-c1.avi"
+    source = r"draft\campus4-c2.avi"
 
-    out_path = "output"
+    out_path = "output_" + os.path.basename(source).split(".")[0]
     # out_path = None
 
     detector = ObjectTracking(source, output_video=out_path)
